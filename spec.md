@@ -17,7 +17,7 @@ Aplicación web para que personas que entrenan regularmente registren sus sesion
 - Check-in diario: el usuario indica si entrenó o descansó en un día dado
 - Check-in retroactivo: el usuario puede registrar entrenamientos de días anteriores
 - Registro de detalle por sesión: grupo muscular trabajado, ejercicios realizados y pesos utilizados
-- Consulta de check-ins existentes (sin posibilidad de editarlos ni eliminarlos)
+- Consulta de check-ins existentes (con posibilidad de editarlos, mas no eliminarlos)
 - Historial de entrenamientos del usuario autenticado
 - Registro de pesos máximos alcanzados por ejercicio
 - Vista de progreso con racha actual de días entrenados consecutivos (un día sin check-in corta la racha)
@@ -78,9 +78,8 @@ Aplicación web para que personas que entrenan regularmente registren sus sesion
 
 ## No-goals
 
-1. **Edición o borrado de check-ins:** Una vez guardado un check-in, no puede modificarse ni eliminarse; solo puede consultarse.
-2. **Interacción social:** No existe feed, seguimiento de otros usuarios ni ninguna forma de interacción entre cuentas.
-3. **Generación automática de contenido:** La app no sugiere rutinas, ejercicios, pesos ni planes de entrenamiento.
-4. **Integración con plataformas externas:** No hay conexión con wearables, apps de salud ni servicios de terceros.
-5. **Notificaciones automatizadas:** No se envían alertas, recordatorios ni emails de seguimiento.
-6. **Análisis avanzado de rendimiento:** No hay gráficas de volumen, comparativas entre períodos ni cálculos derivados como el 1RM estimado.
+1. **Interacción social:** No existe feed, seguimiento de otros usuarios ni ninguna forma de interacción entre cuentas.
+2. **Generación automática de contenido:** La app no sugiere rutinas, ejercicios, pesos ni planes de entrenamiento.
+3. **Integración con plataformas externas:** No hay conexión con wearables, apps de salud ni servicios de terceros.
+4. **Notificaciones automatizadas:** No se envían alertas, recordatorios ni emails de seguimiento.
+5. **Análisis avanzado de rendimiento:** No hay gráficas de volumen, comparativas entre períodos ni cálculos derivados como el 1RM estimado.
