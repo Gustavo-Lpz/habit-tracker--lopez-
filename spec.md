@@ -25,7 +25,6 @@ Aplicación web para que personas que entrenan regularmente registren sus sesion
 
 **Qué NO entra (no-goals):**
 
-- Edición o eliminación de check-ins ya guardados
 - Ver ni interactuar con datos de otros usuarios
 - Planes de entrenamiento generados automáticamente o sugerencias de rutinas
 - Integración con wearables o apps externas (Apple Health, Google Fit, Strava, etc.)
