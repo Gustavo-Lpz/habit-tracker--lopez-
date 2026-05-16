@@ -1,9 +1,15 @@
-```markdown
 # Habit Tracker
 
-Proyecto del Diplomado Vibe Coding Profesional - Instituto Inadaptados.
+Aplicación para registrar y dar seguimiento a hábitos diarios con rachas y estadísticas.
 
-Ver `spec.md` para el spec del proyecto.
+## Stack
 
-**Estado:** spec en revisión. Build en Sesión 3.
-```
+- Next.js 15 (App Router)
+- Supabase (Postgres + Auth)
+- Vercel (deploy)
+- TypeScript estricto
+- Tailwind CSS
+
+## Estado actual
+
+Documentación en construcción.
