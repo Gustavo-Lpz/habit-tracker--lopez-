@@ -124,7 +124,7 @@ Pesos máximos:
 Las siguientes verificaciones requieren acceso directo a Supabase y no son observables por UI:
 
 - **Aislamiento de datos entre usuarios:** verificar que las políticas RLS en todas las tablas (`habits`, `check_ins`, `badges`) impiden que un usuario acceda a filas de otro usuario mediante queries directos.
-- **Unicidad de check-ins:** verificar que la restricción `UNIQUE(user_id, habit_id, date)` existe en la tabla `check_ins` a nivel de base de datos.
+- **Unicidad de check-ins:** verificar que la restricción `UNIQUE(user_id, date)` existe en la tabla `check_ins` a nivel de base de datos — un solo check-in por usuario por día.
 - **Soft delete:** verificar que los registros con `deleted_at IS NOT NULL` en `habits` no son retornados por las queries de hábitos activos.
 - **Persistencia de best_streak:** verificar que `best_streak` se actualiza correctamente cuando la racha actual lo supera y no retrocede cuando la racha se corta.
 
@@ -147,8 +147,8 @@ Las siguientes verificaciones requieren acceso directo a Supabase y no son obser
 
 ### Ronda 1 — Arquitectura de datos
 
-- **Frecuencia semanal:** significa N veces por semana (`frequency_count INT`). No impone días fijos. No afecta el cálculo de racha.
-- **Modelo de check-in:** una fila por día, unicidad por `(user_id, habit_id, date DATE)`, tipo `ENUM('training', 'rest')`.
+- **Frecuencia del hábito:** ENUM `('daily', 'weekly')`. El usuario elige entre diario o semanal como opción fija. No implica días específicos de la semana. No afecta el cálculo de racha.
+- **Modelo de check-in:** una fila por día, unicidad global por `(user_id, date DATE)` — un solo check-in por usuario por día independientemente del hábito. Tipo `ENUM('training', 'rest')`.
 - **Eliminación de hábito:** soft delete (`deleted_at TIMESTAMPTZ`). Check-ins se conservan y siguen visibles en historial y pesos máximos con el nombre original del hábito.
 - **Ejercicios y grupos musculares:** texto libre. Pesos máximos calculados por coincidencia exacta de string. Sin catálogo ni normalización.
 - **Racha:** actual calculada on-the-fly; mejor histórica persistida en columna `best_streak INT`, actualizada cuando la racha actual la supera.
@@ -165,7 +165,10 @@ Las siguientes verificaciones requieren acceso directo a Supabase y no son obser
 ### Ronda 3 — Developer entrante
 
 - **Rendering:** todas las pantallas usan Client Components con Supabase browser client. Historial con SWR. Pantalla del día con `useState`.
+- **Mutaciones:** llamadas directas al browser client de Supabase desde Client Components. Sin Server Actions.
+- **Protección de rutas:** middleware de Next.js (`middleware.ts`) con `@supabase/ssr`. Intercepta antes de renderizar; cero flash de contenido protegido.
 - **Rutas:** `/` redirige según sesión. Check-in retroactivo en `/checkin/[date]` como ruta propia.
+- **Dashboard (`/dashboard`):** muestra racha actual, último check-in registrado, lista de hábitos activos con acceso rápido al check-in del día, y enlaces a `/history` y `/progress`.
 - **Errores de red:** mensaje de error inline en el formulario; el formulario no se cierra.
 - **Sesión expirada:** modal "Tu sesión expiró, inicia sesión de nuevo" sin redirección automática.
 - **Validaciones de input:** descripción del hábito máx. 200 caracteres; ejercicio y grupo muscular máx. 100 caracteres; nombre de hábito y cantidad de hábitos sin límite definido en spec.

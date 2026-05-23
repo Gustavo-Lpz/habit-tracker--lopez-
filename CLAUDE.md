@@ -20,11 +20,11 @@ npm run lint       # ESLint
 
 ## Architecture
 
-- **App Router** — use `app/` directory with server components by default; client components only when interactivity is required.
-- **Supabase Auth** — handles registration, login, and session management. All protected routes must redirect unauthenticated users to `/login`.
-- **Row-Level Security (RLS)** — every Supabase table must enforce RLS so users can only access their own rows. Never bypass RLS in server actions.
-- **Server Actions** — prefer Next.js Server Actions over API routes for mutations (create/edit operations).
-- **Data fetching** — fetch data in Server Components using the Supabase server client (`createServerClient`). Use the browser client only inside client components.
+- **App Router** — all screens are Client Components using the Supabase browser client. No Server Components for data fetching.
+- **Supabase Auth** — handles registration, login, and session management. Route protection via `middleware.ts` using `@supabase/ssr` — intercepts requests before rendering, no content flash.
+- **Row-Level Security (RLS)** — every Supabase table must enforce RLS so users can only access their own rows.
+- **Mutations** — direct calls to the Supabase browser client from Client Components. No Server Actions.
+- **Data fetching** — use the Supabase browser client inside Client Components. History screen uses SWR. No `createServerClient` for data fetching.
 
 ## Classified Specs
 
@@ -34,31 +34,34 @@ npm run lint       # ESLint
 - Any unauthenticated access to a protected page redirects to login immediately.
 
 ### Habits (CRUD)
-- Users create habits with name, description, and frequency (`daily` | `weekly`).
-- Habits can be edited or deleted. Deleting a habit prevents future check-ins on it.
+- Users create habits with name, description (max 200 chars), and frequency (`daily` | `weekly`).
+- Habits can be edited or deleted. Deleting a habit is a soft delete (`deleted_at`); prevents future check-ins but preserves history.
 - Empty state (no habits) must render without errors.
 
 ### Check-ins
-- Per-day check-in marks the day as `training` or `rest`.
-- `training` check-ins require at least one muscle group, with exercises and weights per exercise.
+- One check-in per user per day — global uniqueness `UNIQUE(user_id, date)`, independent of which habit.
+- Check-in type: `training` or `rest`.
+- `training` check-ins require at least one exercise row (muscle group + exercise name + weight, all free text, max 100 chars each). Stored in a separate `exercises` table with FK to `check_ins`.
 - `rest` check-ins require no additional data.
-- Check-ins are **immutable** once saved — no edits, no deletes.
-- Only one check-in per user per date is allowed; the system rejects duplicates and surfaces the existing record.
-- Retroactive check-ins are allowed: the saved date is the user-selected date, not today.
+- Check-ins are **immutable** once saved — no edits, no deletes. UI shows read-only view if the date already has a check-in.
+- Retroactive check-ins are allowed: the date comes from the client, no limit on how far back.
 
 ### History & Max Weights
 - History lists past training sessions with date, muscle groups, exercises, and weights.
 - Max weight per exercise is derived from the user's own check-in history (highest weight recorded across all sessions for that exercise).
 
 ### Streak Logic
-- Streak = the count of the most recent consecutive days where the check-in type is `training`.
-- A `rest` check-in **breaks** the streak.
-- A day with **no check-in** also **breaks** the streak.
-- Only the current active streak is shown; historical longest streak is out of scope.
+- Current streak = count of the most recent consecutive days with `training` check-in. Calculated on-the-fly.
+- A `rest` check-in **breaks** the streak. A day with **no check-in** also **breaks** the streak.
+- Best streak (`best_streak INT`) is persisted on the user record. Updated whenever the current streak exceeds it; never decremented.
+- `/progress` shows both: current streak and best streak.
 
-### Share Progress (chosen extension)
-- From the progress view, the user can generate a plain-text summary (total training days + max weights per exercise) and copy it to the clipboard.
-- No public URL or external sharing — clipboard copy only.
+### Dashboard (`/dashboard`)
+- Shown after login. Displays: current streak, last check-in recorded, active habits list with quick access to today's check-in, and links to `/history` and `/progress`.
+
+### Share Progress
+- From `/progress`, generates plain-text summary: "Entrené X días en total." + max weights per exercise.
+- Copies to clipboard. Also triggers Web Share API if the browser supports it (same plain-text content). Silent fallback to clipboard-only if Web Share is not supported.
 
 ## Key Business Rules
 
