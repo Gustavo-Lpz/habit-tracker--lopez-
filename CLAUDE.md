@@ -20,11 +20,81 @@ npm run lint       # ESLint
 
 ## Architecture
 
-- **App Router** — use `app/` directory with server components by default; client components only when interactivity is required.
+- **App Router** — use `app/` directory with Client Components and `createBrowserClient()` for all data fetching. Server Actions with `createServerClient()` for all mutations.
 - **Supabase Auth** — handles registration, login, and session management. All protected routes must redirect unauthenticated users to `/login`.
 - **Row-Level Security (RLS)** — every Supabase table must enforce RLS so users can only access their own rows. Never bypass RLS in server actions.
 - **Server Actions** — prefer Next.js Server Actions over API routes for mutations (create/edit operations).
-- **Data fetching** — fetch data in Server Components using the Supabase server client (`createServerClient`). Use the browser client only inside client components.
+- **Data fetching** — fetch data in Client Components using the Supabase browser client (`createBrowserClient`). Use SWR for `/history`. Use `createServerClient` only in Server Actions and `middleware.ts`.
+
+### Architecture Decision Records
+
+Three architectural decisions are formally recorded in [`docs/decisions/`](docs/decisions/):
+
+| ADR | Decision | Chosen |
+|-----|----------|--------|
+| [ADR-0001](docs/adr/0001-modelo-de-datos.md) | Data model | 5 tables: `habits`, `check_ins`, `session_exercises`, `profiles`, `badges` |
+| [ADR-0002](docs/adr/0002-estrategia-autenticacion.md) | Auth strategy | Central middleware with `@supabase/ssr` |
+| [ADR-0003](docs/adr/0003-frontera-cliente-servidor.md) | Client/server boundary | Client Components everywhere with browser client; Server Actions for mutations |
+
+### Database Schema
+
+```sql
+habits (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid REFERENCES auth.users NOT NULL,
+  name            text NOT NULL,
+  description     text CHECK (length(description) <= 200),
+  frequency_type  text NOT NULL CHECK (frequency_type IN ('daily', 'weekly')),
+  frequency_count int,
+  deleted_at      timestamptz,
+  created_at      timestamptz DEFAULT now()
+)
+
+check_ins (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES auth.users NOT NULL,
+  habit_id    uuid REFERENCES habits(id) NOT NULL,
+  date        date NOT NULL,
+  type        text NOT NULL CHECK (type IN ('training', 'rest')),
+  created_at  timestamptz DEFAULT now(),
+  UNIQUE (user_id, habit_id, date)
+)
+
+session_exercises (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  check_in_id   uuid REFERENCES check_ins(id) ON DELETE CASCADE NOT NULL,
+  exercise_name text NOT NULL,
+  muscle_group  text NOT NULL,
+  weight        numeric NOT NULL
+)
+
+profiles (
+  user_id     uuid PRIMARY KEY REFERENCES auth.users,
+  best_streak int NOT NULL DEFAULT 0
+)
+
+badges (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES auth.users NOT NULL,
+  badge_type  text NOT NULL CHECK (badge_type IN ('week_1', 'days_30')),
+  unlocked_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, badge_type)
+)
+```
+
+RLS is enabled on all tables. `session_exercises` policies filter via `check_in_id → check_ins.user_id`. Habits use soft delete (`deleted_at IS NOT NULL` excludes active habits; their check-ins remain visible in history and max weights).
+
+### Auth Implementation
+
+- `middleware.ts` — refreshes session token and redirects unauthenticated requests to `/login` before any Server Component runs.
+- `createServerClient()` — use in Server Actions and `middleware.ts` only.
+- `createBrowserClient()` — use in all Client Components for data fetching.
+
+### Mutation Pattern
+
+```
+Client Component → Server Action (validation + createServerClient()) → write to Supabase → re-fetch via SWR or router.refresh()
+```
 
 ## Classified Specs
 
@@ -54,11 +124,12 @@ npm run lint       # ESLint
 - Streak = the count of the most recent consecutive days where the check-in type is `training`.
 - A `rest` check-in **breaks** the streak.
 - A day with **no check-in** also **breaks** the streak.
-- Only the current active streak is shown; historical longest streak is out of scope.
+- Current streak and best historical streak (`best_streak` in `profiles` table) are both shown in `/progress`. `best_streak` is updated when the current streak surpasses it and never decremented.
 
 ### Share Progress (chosen extension)
-- From the progress view, the user can generate a plain-text summary (total training days + max weights per exercise) and copy it to the clipboard.
-- No public URL or external sharing — clipboard copy only.
+- From the progress view, the user can generate a plain-text summary (total training days + max weights per exercise).
+- Content is always copied to the clipboard. If the browser supports the Web Share API, the native share dialog is also offered. If not, only clipboard copy runs — no error shown.
+- No public URL or persistent sharing.
 
 ## Key Business Rules
 
