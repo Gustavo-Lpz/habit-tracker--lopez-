@@ -20,11 +20,81 @@ npm run lint       # ESLint
 
 ## Architecture
 
-- **App Router** — all screens are Client Components using the Supabase browser client. No Server Components for data fetching.
-- **Supabase Auth** — handles registration, login, and session management. Route protection via `middleware.ts` using `@supabase/ssr` — intercepts requests before rendering, no content flash.
-- **Row-Level Security (RLS)** — every Supabase table must enforce RLS so users can only access their own rows.
-- **Mutations** — direct calls to the Supabase browser client from Client Components. No Server Actions.
-- **Data fetching** — use the Supabase browser client inside Client Components. History screen uses SWR. No `createServerClient` for data fetching.
+- **App Router** — use `app/` directory with Client Components and `createBrowserClient()` for all data fetching. Server Actions with `createServerClient()` for all mutations.
+- **Supabase Auth** — handles registration, login, and session management. All protected routes must redirect unauthenticated users to `/login`.
+- **Row-Level Security (RLS)** — every Supabase table must enforce RLS so users can only access their own rows. Never bypass RLS in server actions.
+- **Server Actions** — prefer Next.js Server Actions over API routes for mutations (create/edit operations).
+- **Data fetching** — fetch data in Client Components using the Supabase browser client (`createBrowserClient`). Use SWR for `/history`. Use `createServerClient` only in Server Actions and `middleware.ts`.
+
+### Architecture Decision Records
+
+Three architectural decisions are formally recorded in [`docs/decisions/`](docs/decisions/):
+
+| ADR | Decision | Chosen |
+|-----|----------|--------|
+| [ADR-0001](docs/adr/0001-modelo-de-datos.md) | Data model | 5 tables: `habits`, `check_ins`, `session_exercises`, `profiles`, `badges` |
+| [ADR-0002](docs/adr/0002-estrategia-autenticacion.md) | Auth strategy | Central middleware with `@supabase/ssr` |
+| [ADR-0003](docs/adr/0003-frontera-cliente-servidor.md) | Client/server boundary | Client Components everywhere with browser client; Server Actions for mutations |
+
+### Database Schema
+
+```sql
+habits (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid REFERENCES auth.users NOT NULL,
+  name            text NOT NULL,
+  description     text CHECK (length(description) <= 200),
+  frequency_type  text NOT NULL CHECK (frequency_type IN ('daily', 'weekly')),
+  frequency_count int,
+  deleted_at      timestamptz,
+  created_at      timestamptz DEFAULT now()
+)
+
+check_ins (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES auth.users NOT NULL,
+  habit_id    uuid REFERENCES habits(id) NOT NULL,
+  date        date NOT NULL,
+  type        text NOT NULL CHECK (type IN ('training', 'rest')),
+  created_at  timestamptz DEFAULT now(),
+  UNIQUE (user_id, habit_id, date)
+)
+
+session_exercises (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  check_in_id   uuid REFERENCES check_ins(id) ON DELETE CASCADE NOT NULL,
+  exercise_name text NOT NULL,
+  muscle_group  text NOT NULL,
+  weight        numeric NOT NULL
+)
+
+profiles (
+  user_id     uuid PRIMARY KEY REFERENCES auth.users,
+  best_streak int NOT NULL DEFAULT 0
+)
+
+badges (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES auth.users NOT NULL,
+  badge_type  text NOT NULL CHECK (badge_type IN ('week_1', 'days_30')),
+  unlocked_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, badge_type)
+)
+```
+
+RLS is enabled on all tables. `session_exercises` policies filter via `check_in_id → check_ins.user_id`. Habits use soft delete (`deleted_at IS NOT NULL` excludes active habits; their check-ins remain visible in history and max weights).
+
+### Auth Implementation
+
+- `middleware.ts` — refreshes session token and redirects unauthenticated requests to `/login` before any Server Component runs.
+- `createServerClient()` — use in Server Actions and `middleware.ts` only.
+- `createBrowserClient()` — use in all Client Components for data fetching.
+
+### Mutation Pattern
+
+```
+Client Component → Server Action (validation + createServerClient()) → write to Supabase → re-fetch via SWR or router.refresh()
+```
 
 ## Classified Specs
 
@@ -34,34 +104,32 @@ npm run lint       # ESLint
 - Any unauthenticated access to a protected page redirects to login immediately.
 
 ### Habits (CRUD)
-- Users create habits with name, description (max 200 chars), and frequency (`daily` | `weekly`).
-- Habits can be edited or deleted. Deleting a habit is a soft delete (`deleted_at`); prevents future check-ins but preserves history.
+- Users create habits with name, description, and frequency (`daily` | `weekly`).
+- Habits can be edited or deleted. Deleting a habit prevents future check-ins on it.
 - Empty state (no habits) must render without errors.
 
 ### Check-ins
-- One check-in per user per day — global uniqueness `UNIQUE(user_id, date)`, independent of which habit.
-- Check-in type: `training` or `rest`.
-- `training` check-ins require at least one exercise row (muscle group + exercise name + weight, all free text, max 100 chars each). Stored in a separate `exercises` table with FK to `check_ins`.
+- Per-day check-in marks the day as `training` or `rest`.
+- `training` check-ins require at least one muscle group, with exercises and weights per exercise.
 - `rest` check-ins require no additional data.
-- Check-ins are **immutable** once saved — no edits, no deletes. UI shows read-only view if the date already has a check-in.
-- Retroactive check-ins are allowed: the date comes from the client, no limit on how far back.
+- Check-ins are **immutable** once saved — no edits, no deletes.
+- Only one check-in per user per date is allowed; the system rejects duplicates and surfaces the existing record.
+- Retroactive check-ins are allowed: the saved date is the user-selected date, not today.
 
 ### History & Max Weights
 - History lists past training sessions with date, muscle groups, exercises, and weights.
 - Max weight per exercise is derived from the user's own check-in history (highest weight recorded across all sessions for that exercise).
 
 ### Streak Logic
-- Current streak = count of the most recent consecutive days with `training` check-in. Calculated on-the-fly.
-- A `rest` check-in **breaks** the streak. A day with **no check-in** also **breaks** the streak.
-- Best streak (`best_streak INT`) is persisted on the user record. Updated whenever the current streak exceeds it; never decremented.
-- `/progress` shows both: current streak and best streak.
+- Streak = the count of the most recent consecutive days where the check-in type is `training`.
+- A `rest` check-in **breaks** the streak.
+- A day with **no check-in** also **breaks** the streak.
+- Current streak and best historical streak (`best_streak` in `profiles` table) are both shown in `/progress`. `best_streak` is updated when the current streak surpasses it and never decremented.
 
-### Dashboard (`/dashboard`)
-- Shown after login. Displays: current streak, last check-in recorded, active habits list with quick access to today's check-in, and links to `/history` and `/progress`.
-
-### Share Progress
-- From `/progress`, generates plain-text summary: "Entrené X días en total." + max weights per exercise.
-- Copies to clipboard. Also triggers Web Share API if the browser supports it (same plain-text content). Silent fallback to clipboard-only if Web Share is not supported.
+### Share Progress (chosen extension)
+- From the progress view, the user can generate a plain-text summary (total training days + max weights per exercise).
+- Content is always copied to the clipboard. If the browser supports the Web Share API, the native share dialog is also offered. If not, only clipboard copy runs — no error shown.
+- No public URL or persistent sharing.
 
 ## Key Business Rules
 
