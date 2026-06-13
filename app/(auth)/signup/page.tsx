@@ -21,10 +21,17 @@ export default function SignupPage() {
     setLoading(true)
 
     const supabase = createBrowserClient()
-    const { error: authError } = await supabase.auth.signUp({ email, password })
+    const { data, error: authError } = await supabase.auth.signUp({ email, password })
 
     if (authError) {
       setError(authError.message)
+      setLoading(false)
+      return
+    }
+
+    // Si Supabase requiere confirmación de email, data.session es null
+    if (!data.session) {
+      setError('Revisa tu email y confirma tu cuenta antes de iniciar sesión.')
       setLoading(false)
       return
     }
